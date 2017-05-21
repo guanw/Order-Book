@@ -32,18 +32,60 @@ class Exchange(object):
         self.total_sell = 0
         self.total_buy = 0
         self.stop_order = []
-        self.cancel_order = []
+        # self.inactive_buy_stop_order = []
+        # self.inactive_sell_stop_order = []
+
+    def _try_to_trigger_stop_action(self, price):
+        "trigger buy stop action with price buy higher than stop action price"
+        new_stop_order_list = []
+        for stop_order in self.stop_order:
+            if stop_order.action == "buy" and stop_order.amount <= price:
+                while len(self.existing_sell_order) > 0 and stop_order.number > 0:
+                    (price, previous_order) = heapq.heappop(self.existing_sell_order)
+
+                    if previous_order.number <= stop_order.number:
+                        stop_order.number -= previous_order.number
+                        self.total_sell -= previous_order.number
+                        print "match " + str(previous_order.id) + " " + str(stop_order.id) + \
+                              " " + str(previous_order.number) + " " + str(previous_order.amount)
+                    else:
+                        previous_order.number -= stop_order.number
+                        self.total_sell -= stop_order.number
+                        print "match " + str(previous_order.id) + " " + str(stop_order.id) + \
+                              " " + str(new_order.number) + " " + str(new_order.amount)
+                        heapq.heappush(self.existing_sell_order, (previous_order.amount, previous_order))
+                        stop_order.number = 0
+
+            elif stop_order.action == "sell" and stop_order.amount >= price:
+                "trigger sell stop action with a price selled lower than stop action price"
+                while len(self.existing_buy_order) > 0 and stop_order.number > 0:
+                    (price, previous_order) = heapq.heappop(self.existing_buy_order)
+
+                    if previous_order.number <= stop_order.number:
+                        stop_order.number -= previous_order.number
+                        self.total_buy -= previous_order.number
+                        print "match " + str(stop_order.id) + str(previous_order.id) + \
+                              " " + str(previous_order.number) + " " + str(previous_order.amount)
+                    else:
+                        previous_order.number -= stop_order.number
+                        self.total_sell -= stop_order.number
+                        print "match " + str(stop_order.id) + " " + str(previous_order.id) + \
+                              " " + str(new_order.number) + " " + str(new_order.amount)
+                        heapq.heappush(self.existing_buy_order, (-previous_order.amount, previous_order))
+                        stop_order.number = 0
+            if stop_order.number != 0:
+                new_stop_order_list.append(stop_order)
+
+        self.stop_order = new_stop_order_list
 
     def process_order(self, new_order):
         if new_order.typeOfOrder == "stop":
             self.stop_order.append(new_order)
-            #TODO process stop order
         elif new_order.typeOfOrder == "cancel":
-            #TODO process cancel order
-            self.cancel_ordera.append(new_order)
+            self.existing_buy_order = filter(lambda elem: elem[1].id != new_order.number, self.existing_buy_order)
+            self.existing_sell_order = filter(lambda elem: elem[1].id != new_order.number, self.existing_sell_order)
         else:
             if new_order.action == "buy":
-
                 if new_order.typeOfOrder == "market":
 
                     while len(self.existing_sell_order) > 0:
@@ -82,7 +124,7 @@ class Exchange(object):
                         else:
                             heapq.heappush(self.existing_buy_order, (price, previous_order))
                             break
-                    self._try_to_add_order_to_book(new_order, "sell")
+                    self._try_to_add_order_to_book(new_order, "")
 
 
 
@@ -101,6 +143,7 @@ class Exchange(object):
                       " " + str(previous_order.number) + " " + str(previous_order.amount)
                 new_order.number -= previous_order.number
                 self.total_sell -= previous_order.number
+                self._try_to_trigger_stop_action(max(previous_order.amount, new_order.amount))
                 return False
             else:
                 print "match " + str(previous_order.id) + " " + str(new_order.id) + \
@@ -109,13 +152,16 @@ class Exchange(object):
                 self.total_sell -= new_order.number
                 heapq.heappush(self.existing_sell_order, (previous_order.amount, previous_order))
                 new_order.number = 0
+                self._try_to_trigger_stop_action(max(previous_order.amount, new_order.amount))
                 return True
+
         else:
             if previous_order.number <= new_order.number:
                 print "match " + str(new_order.id) + " " + str(previous_order.id)+ \
                       " " + str(previous_order.number) + " " + str(previous_order.amount)
                 new_order.number -= previous_order.number
                 self.total_buy -= previous_order.number
+                self._try_to_trigger_stop_action(max(previous_order.amount, new_order.amount))
                 return False
             else:
                 print "match " + str(new_order.id) + " " + str(previous_order.id) + \
@@ -124,8 +170,8 @@ class Exchange(object):
                 self.total_buy -= new_order.number
                 heapq.heappush(self.existing_buy_order, (-previous_order.amount, previous_order))
                 new_order.number = 0
+                self._try_to_trigger_stop_action(max(previous_order.amount, new_order.amount))
                 return True
-
 
 
 id = 1
